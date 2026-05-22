@@ -1,0 +1,12 @@
+# config.yaml
+
+registry_url: http://localhost:5000
+storage_root: ./storage
+max_job_duration_sec: 1800  # 30 minutes
+concurrency_limit: 4
+
+# Database
+db_url: sqlite:///forge.db
+
+# Slack
+slack_webhook_url: ""  # Set via env var
