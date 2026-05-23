@@ -1,176 +1,147 @@
-# Forge CI/CD Platform
+# Forge — CI/CD Platform with Integrated Artifact Registry
 
-Forge is a small CI/CD platform with an integrated artifact registry. It accepts YAML pipelines, resolves dependencies before builds, runs jobs in isolated Docker containers, streams logs live, publishes artifacts, and sends Slack alerts for important events.
+## Public URL
 
-Public URL for grading: `http://YOUR_STATIC_IP_OR_DOMAIN`
+Replace with your VPS address after deployment:
 
-Replace the URL above after deploying to the VPS.
+- **Engine API:** `http://YOUR_VPS_IP:8000`
+- **Registry API:** `http://YOUR_VPS_IP:8001`
 
-## Pipeline YAML
+## Pipeline YAML Schema
 
 ```yaml
-name: build-lib-http          # Human-readable pipeline name
-version: 1.0.0                # Pipeline version
+name: build-lib-http          # required: pipeline name
+version: 1.0.0                # required: semver pipeline version
 
-dependencies:                 # Packages to pull from the registry before jobs run
+dependencies:                 # optional: pulled to ./deps/<name>/ before jobs run
   - name: lib-core
-    version: "^1.0.0"
+    version: "^1.0.0"         # exact, ^, ~, or comparator range (>=1.0.0 <2.0.0)
 
 jobs:
-  build:
-    runtime: alpine:3.18      # Docker image used for this job
+  build:                      # job name (becomes DAG node)
+    runtime: alpine:3.18      # required: Docker image
     resources:
-      cpu: 1.0
-      memory: 512Mi
+      cpu: 1.0                # CPU cores
+      memory: 512Mi           # memory limit (Ki/Mi/Gi)
+    needs: []                 # optional: job names this depends on
     steps:
       - name: test
-        run: "sh ./test.sh"
+        run: "sh ./test.sh"   # shell command in shared workspace
       - name: package
         run: "tar czf out.tar.gz src/"
 
-artifacts:
+artifacts:                    # auto-published after all jobs succeed
   - name: lib-http
-    version: 1.0.0
-    path: ./out.tar.gz
+    version: 1.0.0            # must be valid semver
+    path: ./out.tar.gz        # relative path under workspace
 ```
 
-## HTTP API
+See `examples/` for the three required capability pipelines.
 
-Engine endpoints:
+## Architecture
 
-- `POST /runs`
-- `GET /runs/{id}`
-- `GET /runs/{id}/lockfile`
-- `GET /runs/{id}/logs`
-- `GET /runs/{id}/logs?follow=true`
+### DAG Scheduler
 
-Registry endpoints expected by the task:
+Jobs declare `needs: [other-job]`. The scheduler builds a directed acyclic graph, detects cycles via DFS over `needs` edges before any job runs, topologically sorts with Kahn's algorithm, and groups jobs into parallel execution levels. Independent jobs in the same level run concurrently up to `max_concurrent_jobs` (configurable in `config.yaml`). When a job fails, all transitive dependents are marked `skipped` (not `failed`).
 
-- `POST /artifacts/{name}/{version}`
-- `GET /artifacts/{name}/{version}`
-- `GET /artifacts/{name}/{version}/meta`
-- `GET /artifacts/{name}`
+### Isolation Mechanism
 
-## CLI
+Each job runs in a dedicated Docker container on the internal `forge_jobs` network (`internal: true` — no public internet egress). Enforcement:
 
-Install locally:
+| Constraint | Implementation |
+|---|---|
+| Filesystem | Bind-mount only `/workspace` (rw) and `/workspace/deps` (ro); `read_only` rootfs + `/tmp` tmpfs |
+| Process | Default Docker PID namespace; `pids_limit=256`; `cap_drop=ALL`; `no-new-privileges` |
+| Network | Internal bridge network — containers reach only other services on `forge_jobs` (the registry) |
+| CPU/memory | Docker cgroups via `cpu_quota` and `mem_limit` from YAML |
+| Time | Per-job wall-clock timeout (default 30 min, configurable) |
 
-```bash
-python -m pip install -e .
-```
+OOM kills are detected via container `OOMKilled` state and logged clearly.
 
-Commands:
+### Storage Layer
 
-```bash
-forge login http://localhost:8000
-forge run pipeline.yaml
-forge run pipeline.yaml --follow
-forge logs <run-id>
-forge logs <run-id> --follow
-forge publish out.tar.gz --name lib-core --version 1.0.0
-forge resolve pipeline.yaml
-forge ls lib-core
-```
+Content-addressable blob storage: files stored at `data/artifacts/blobs/<sha256[:2]>/<sha256>`. The `(name, version)` coordinate maps to a SHA-256 hash in SQLite. Server-side checksum verification on upload; client-declared checksum mismatch → 400. `UNIQUE(name, version)` constraint enforces immutability → 409 on duplicate.
 
-`forge login` stores credentials in `~/.forge/credentials` with file mode `0600`.
+### Dependency Resolver
 
-## DAG Scheduler
+Hand-rolled semver parser supporting exact, caret (`^`), tilde (`~`), and comparator ranges. Walks transitive dependencies via registry metadata, detects cycles and version conflicts with clear error messages, and selects the **highest** version satisfying all constraints.
 
-The scheduler reads the `jobs` section and uses each job's `needs` list to build a graph. Jobs with no dependencies can run first. Jobs whose dependencies are complete can run in parallel, up to the configured concurrency limit.
+**Determinism:** root dependencies processed in alphabetical order; packages resolved in alphabetical order; lockfile serialized with `sort_keys=True` and compact separators. Same pipeline + same registry state always produces an identical lockfile byte-for-byte.
 
-If the scheduler sees a cycle, the run must fail before any build starts. If one job fails, jobs that depend on it are marked as skipped.
+### Log Streaming
 
-## Isolation Mechanism
+Each log line is written as a JSON event `{"ts","job","line"}` to `data/logs/<run_id>/<job>.log` and appended to `data/logs/<run_id>/combined.jsonl`. The SSE endpoint at `GET /runs/{id}/logs?follow=true` reads `combined.jsonl` incrementally — backlog first, then tail — without loading the full file into memory. A 50MB log remains streamable via offset-based reads.
 
-Jobs run inside Docker containers. Each job gets:
+## Concurrent Publish Safety
 
-- Its own mounted workspace at `/workspace`
-- Read-only dependencies at `/workspace/deps`
-- CPU and memory limits
-- A configured Docker network
-- `FORGE_URL` and `FORGE_TOKEN` environment variables
-
-The final grader requirement is stricter than a normal Docker run: outbound network traffic must only reach the registry, and OOM/timeouts must be logged clearly.
-
-## Storage Layer
-
-The registry is expected to store artifact blobs by SHA-256 and store metadata in Postgres or SQLite. The metadata must map `(name, version)` to the blob hash and reject duplicate publishes.
-
-Two pipelines racing to publish the same `(name, version)` should be handled with a database uniqueness constraint. The first insert wins. The second insert gets `409 Conflict`.
-
-## Resolver Determinism
-
-The resolver must read all matching versions from registry metadata, apply semver constraints, and select the highest valid version. The lockfile must be written with stable key ordering so the same pipeline and registry state produce identical JSON bytes every time.
-
-## Log Streaming
-
-Logs are stored as JSON Lines under `storage/logs/<run-id>.jsonl`. Each line contains:
-
-```json
-{"ts":"2026-05-23T10:00:00+00:00","job":"build","line":"running tests"}
-```
-
-The API streams logs line by line from disk. It does not load the whole file into memory, so a 50MB log can still be read safely. A client connecting mid-build first receives the backlog already written to disk, then receives new lines as they arrive.
-
-## Slack Alerts
-
-Configure Slack in `config.yaml` or with `SLACK_WEBHOOK_URL`.
-
-Alerts use Block Kit and cover:
-
-- Pipeline started
-- Pipeline succeeded
-- Pipeline failed
-- Integrity failure
-- Resolution failure
-
-Example alert:
-
-```text
-Header: Pipeline failed
-Pipeline: build-lib-http
-Run ID: abc123
-Duration: 42.5s
-Failing job: build
-```
-
-Add a real screenshot here after sending a test alert in Slack.
+Two pipelines racing to publish the same `(name, version)` both attempt an SQLite `INSERT`. The `UNIQUE(name, version)` constraint ensures exactly one succeeds (201) and the other gets 409. SQLite write serialization prevents silent corruption.
 
 ## Fresh VPS Setup
 
-1. Point a domain or static IP to the VPS.
-2. Install Docker and Docker Compose.
-3. Clone this repository.
-4. Set the Slack webhook if needed:
-
 ```bash
-export SLACK_WEBHOOK_URL="https://hooks.slack.com/services/..."
+# 1. Install Docker
+sudo apt-get update && sudo apt-get install -y docker.io docker-compose-plugin python3-pip git
+sudo usermod -aG docker $USER && newgrp docker
+
+# 2. Clone and start
+git clone <repo-url> ~/forge && cd ~/forge
+docker compose build
+docker compose up -d
+
+# 3. Install CLI (on the host)
+pip3 install -e . --break-system-packages
+
+# 4. Create first auth token
+docker compose exec registry forge admin create-token admin
+# Alternatively (without CLI in container):
+docker compose exec registry python scripts/create_token.py admin
+# Either prints: FORGE_TOKEN=<hex-token>
+
+# 5. Login and run
+forge login http://YOUR_VPS_IP:8000 --token <token>
+forge run examples/build-lib-core.yaml --follow
+forge ls lib-core
 ```
 
-5. Build and start services:
+## CLI Commands
 
-```bash
-make up
+| Command | Description |
+|---|---|
+| `forge login <url> --token <token>` | Store credentials in `~/.forge/credentials` |
+| `forge run <pipeline.yaml> [--follow]` | Submit pipeline; optionally tail logs |
+| `forge logs <run-id> [--follow]` | Fetch or stream logs via SSE |
+| `forge publish <path> --name <n> --version <v>` | Upload artifact with checksum |
+| `forge resolve <pipeline.yaml>` | Print lockfile without running |
+| `forge ls <package>` | List published versions |
+
+## HTTP API
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| POST | `/runs` | Bearer | Submit pipeline → `{run_id}` |
+| GET | `/runs/{id}` | — | `{status, jobs, lockfile_url}` |
+| GET | `/runs/{id}/lockfile` | — | Lockfile JSON |
+| GET | `/runs/{id}/logs?follow=true` | — | SSE stream `{ts, job, line}` |
+| POST | `/artifacts/{name}/{version}` | Bearer | Upload → 201 / 400 / 409 |
+| GET | `/artifacts/{name}/{version}` | — | Blob download + `X-Artifact-SHA256` |
+| GET | `/artifacts/{name}/{version}/meta` | — | Metadata JSON |
+| GET | `/artifacts/{name}` | — | `{versions: [...]}` |
+
+**Run statuses:** `queued`, `running`, `succeeded`, `failed`, `integrity_failure`, `conflict_failure`, `cycle_failure`
+
+## Slack Alerts
+
+Configure `slack.webhook_url` in `config.yaml`. Alerts (Block Kit) fire for: pipeline started/succeeded/failed, integrity failures (with `@mentions`), and resolution failures.
+
+## Repository Structure
+
 ```
-
-6. Create the first auth token:
-
-```bash
-make token
+├── engine/         main.py, parser.py, scheduler.py, runner.py, logs.py, slack.py
+├── registry/       main.py, storage.py, metadata.py, resolver.py, auth.py
+├── cli/forge.py
+├── compose.yaml
+├── config.yaml
+├── config.py
+├── examples/       Sample pipeline YAMLs
+└── scripts/        create_token.py
 ```
-
-7. Login with the CLI:
-
-```bash
-forge login http://YOUR_STATIC_IP_OR_DOMAIN
-```
-
-8. Submit a pipeline:
-
-```bash
-forge run examples/pipeline.yaml --follow
-```
-
-## Current Integration Note
-
-Daniel's slice is implemented here: log streaming, CLI, Slack helper, config, compose, and documentation. The registry storage and full dependency resolver are still separate project slices. Placeholder modules are present so the service can import while those pieces are being completed.

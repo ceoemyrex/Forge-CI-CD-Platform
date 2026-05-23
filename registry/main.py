@@ -1,156 +1,105 @@
-from fastapi import FastAPI, HTTPException
+"""Forge artifact registry HTTP API."""
 
-<<<<<<< Updated upstream
-app = FastAPI(title="Forge Artifact Registry")
+from __future__ import annotations
 
-=======
 import hashlib
 import json
-import re
->>>>>>> Stashed changes
+import os
 
-@app.get("/health")
-async def health():
-    return {"status": "ok"}
-
-<<<<<<< Updated upstream
-
-@app.get("/artifacts/{name}")
-async def list_versions(name: str):
-    raise HTTPException(status_code=501, detail="Registry storage is owned by the registry task and is not implemented yet")
-=======
-from fastapi.responses import Response
+from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile
+from fastapi.responses import JSONResponse, Response
 
 from registry.auth import require_auth
-
-from registry.storage import store_blob, get_blob, verify_checksum
-
-from registry.metadata import insert_artifact, get_artifact, list_versions
+from registry.metadata import get_artifact, insert_artifact, is_valid_semver, list_versions
+from registry.storage import get_blob, store_blob, verify_checksum
 
 app = FastAPI(title="Forge Registry")
 
-def _auth(authorization: str = None):
 
+def _auth(authorization: str = Header(None)) -> str:
     try:
-
         return require_auth(authorization)
+    except ValueError as exc:
+        raise HTTPException(status_code=401, detail=str(exc)) from exc
 
-    except ValueError as e:
-
-        raise HTTPException(status_code=401, detail=str(e))
 
 @app.post("/artifacts/{name}/{version}", status_code=201)
-
 async def publish_artifact(
-
     name: str,
-
     version: str,
-
     file: UploadFile = File(...),
-
     checksum: str = Form(...),
-
     deps: str = Form("[]"),
-
-    authorization: str = Header(None)
-
+    authorization: str = Header(None),
 ):
-
     publisher = _auth(authorization)
 
-    # Validate semver.
-    if not re.fullmatch(r"\d+\.\d+\.\d+", version):
-
+    if not is_valid_semver(version):
         raise HTTPException(status_code=400, detail=f"Invalid semver version: {version}")
 
-    # Check immutability
-
     existing = get_artifact(name, version)
-
     if existing:
-
-        raise HTTPException(status_code=409, detail=f"{name}@{version} already exists (immutable)")
+        raise HTTPException(
+            status_code=409,
+            detail=f"{name}@{version} already exists (immutable)",
+        )
 
     data = await file.read()
 
-    # Verify checksum
-
     if not verify_checksum(data, checksum):
-
         actual = hashlib.sha256(data).hexdigest()
-
         raise HTTPException(
-
             status_code=400,
-
-            detail=f"Checksum mismatch: declared={checksum}, actual=sha256:{actual}"
-
+            detail=f"Checksum mismatch: declared={checksum}, actual=sha256:{actual}",
         )
 
     sha256 = store_blob(data)
 
     try:
-
         dep_list = json.loads(deps)
-
-    except Exception:
-
+    except json.JSONDecodeError:
         dep_list = []
 
     try:
-
         insert_artifact(name, version, sha256, len(data), publisher, dep_list)
-
-    except ValueError as e:
-
-        raise HTTPException(status_code=409, detail=str(e))
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     return {"name": name, "version": version, "sha256": sha256, "size": len(data)}
 
+
 @app.get("/artifacts/{name}/{version}/meta")
-
 def artifact_meta(name: str, version: str):
-
     meta = get_artifact(name, version)
-
     if not meta:
-
         raise HTTPException(status_code=404, detail=f"{name}@{version} not found")
-
     return meta
 
+
 @app.get("/artifacts/{name}/{version}")
-
 def download_artifact(name: str, version: str):
-
     meta = get_artifact(name, version)
-
     if not meta:
-
         raise HTTPException(status_code=404, detail=f"{name}@{version} not found")
-
     data = get_blob(meta["sha256"])
-
     if not data:
-
         raise HTTPException(status_code=404, detail="Blob not found")
-
     return Response(
-
         content=data,
-
         media_type="application/octet-stream",
-
-        headers={"X-Artifact-SHA256": meta["sha256"]}
-
+        headers={"X-Artifact-SHA256": meta["sha256"]},
     )
 
+
 @app.get("/artifacts/{name}")
-
 def list_artifact_versions(name: str):
-
     versions = list_versions(name)
+    return {"name": name, "versions": [v["version"] for v in versions]}
 
-    return {"name": name, "versions": versions}
->>>>>>> Stashed changes
+
+if __name__ == "__main__":
+    import uvicorn
+
+    import config
+
+    uvicorn.run(app, host=config.REGISTRY_HOST, port=config.REGISTRY_PORT)

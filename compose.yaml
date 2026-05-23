@@ -1,63 +1,51 @@
 services:
-  engine:
-    build: .
-    command: uvicorn engine.main:app --host 0.0.0.0 --port 8000
-    environment:
-      CONFIG_PATH: /app/config.yaml
-      REGISTRY_URL: http://registry:5000
-      DB_URL: postgresql://forge:forge@db:5432/forge
-      SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}
-    volumes:
-      - ./config.yaml:/app/config.yaml:ro
-      - forge-storage:/app/storage
-      - /var/run/docker.sock:/var/run/docker.sock
-    depends_on:
-      - registry
-      - db
-    ports:
-      - "8000:8000"
-
   registry:
     build: .
-    command: uvicorn registry.main:app --host 0.0.0.0 --port 5000
+    command: python -m uvicorn registry.main:app --host 0.0.0.0 --port 8001
+    ports:
+      - "8001:8001"
+    volumes:
+      - forge_data:/data
     environment:
-      CONFIG_PATH: /app/config.yaml
-      DB_URL: postgresql://forge:forge@db:5432/forge
-<<<<<<< Updated upstream
-=======
-      REGISTRY_DB_PATH: /app/storage/db/registry.db
-      TOKEN_DB_PATH: /app/storage/db/tokens.db
-      ARTIFACT_STORAGE_DIR: /app/storage/artifacts
->>>>>>> Stashed changes
-    volumes:
-      - ./config.yaml:/app/config.yaml:ro
-      - forge-storage:/app/storage
-    depends_on:
-      - db
-    ports:
-      - "5000:5000"
+      FORGE_CONFIG: /app/config.yaml
+      REGISTRY_DB_PATH: /data/db/registry.db
+      ARTIFACT_STORAGE_DIR: /data/artifacts
+      TOKEN_DB_PATH: /data/db/tokens.db
+      REGISTRY_URL: http://registry:8001
+    networks:
+      - forge_jobs
+      - forge_public
+    restart: unless-stopped
 
-  db:
-    image: postgres:16-alpine
+  engine:
+    build: .
+    command: python -m uvicorn engine.main:app --host 0.0.0.0 --port 8000
+    ports:
+      - "8000:8000"
+    volumes:
+      - forge_data:/data
+      - /var/run/docker.sock:/var/run/docker.sock
     environment:
-      POSTGRES_DB: forge
-      POSTGRES_USER: forge
-      POSTGRES_PASSWORD: forge
-    volumes:
-      - forge-db:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"
-
-  proxy:
-    image: caddy:2-alpine
-    ports:
-      - "80:80"
-    volumes:
-      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      FORGE_CONFIG: /app/config.yaml
+      STORAGE_ROOT: /data
+      LOG_DIR: /data/logs
+      REGISTRY_URL: http://registry:8001
+      TOKEN_DB_PATH: /data/db/tokens.db
+      JOB_NETWORK: forge_jobs
     depends_on:
-      - engine
       - registry
+    networks:
+      - forge_jobs
+      - forge_public
+    restart: unless-stopped
+
+networks:
+  forge_jobs:
+    name: forge_jobs
+    driver: bridge
+    internal: true
+  forge_public:
+    driver: bridge
 
 volumes:
-  forge-storage:
-  forge-db:
+  forge_data:

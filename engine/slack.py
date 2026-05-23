@@ -1,116 +1,146 @@
+"""Slack webhook alerts using Block Kit."""
+
+from __future__ import annotations
+
 import logging
-from typing import Optional
+from typing import List, Optional
 
 import requests
+
+import config
 
 logger = logging.getLogger(__name__)
 
 
-class SlackAlertClient:
-    """Small Slack webhook client that sends Block Kit messages."""
-
-    def __init__(self, webhook_url: str = "", notify_tags: str = ""):
-        self.webhook_url = webhook_url or ""
-        self.notify_tags = notify_tags or ""
-
-    def pipeline_started(self, pipeline: str, run_id: str, user: str) -> None:
-        self._send(
-            title="Pipeline started",
-            color=":large_blue_circle:",
-            fields={
-                "Pipeline": pipeline,
-                "Run ID": run_id,
-                "Submitted by": user,
-            },
+def _post(blocks: list, text: str) -> None:
+    url = config.SLACK_WEBHOOK_URL
+    if not url or url.startswith("SLACK"):
+        return
+    try:
+        requests.post(
+            url,
+            json={"text": text, "blocks": blocks},
+            timeout=10,
         )
+    except Exception as exc:
+        logger.warning("Slack alert failed: %s", exc)
 
-    def pipeline_succeeded(self, pipeline: str, run_id: str, duration_seconds: float) -> None:
-        self._send(
-            title="Pipeline succeeded",
-            color=":white_check_mark:",
-            fields={
-                "Pipeline": pipeline,
-                "Run ID": run_id,
-                "Duration": f"{duration_seconds}s",
-            },
-        )
 
-    def pipeline_failed(
-        self,
-        pipeline: str,
-        run_id: str,
-        duration_seconds: float,
-        failing_job: str,
-    ) -> None:
-        self._send(
-            title="Pipeline failed",
-            color=":x:",
-            fields={
-                "Pipeline": pipeline,
-                "Run ID": run_id,
-                "Duration": f"{duration_seconds}s",
-                "Failing job": failing_job,
-            },
-        )
+def _mention_line() -> str:
+    users = config.SLACK_NOTIFY_USERS or []
+    return " ".join(users)
 
-    def integrity_failure(
-        self,
-        artifact: str,
-        expected_sha256: str,
-        actual_sha256: str,
-        run_id: str,
-        notify_tags: Optional[str] = None,
-    ) -> None:
-        tags = notify_tags if notify_tags is not None else self.notify_tags
-        self._send(
-            title="Integrity failure",
-            color=":rotating_light:",
-            fields={
-                "Artifact": artifact,
-                "Expected SHA-256": expected_sha256,
-                "Actual SHA-256": actual_sha256,
-                "Run ID": run_id,
-                "Notify": tags,
-            },
-        )
 
-    def resolution_failure(self, pipeline: str, run_id: str, details: str) -> None:
-        self._send(
-            title="Resolution failure",
-            color=":warning:",
-            fields={
-                "Pipeline": pipeline,
-                "Run ID": run_id,
-                "Details": details,
-            },
-        )
+def pipeline_started(pipeline: str, run_id: str, user: str = "unknown") -> None:
+    blocks = [
+        {
+            "type": "header",
+            "text": {"type": "plain_text", "text": "Pipeline Started"},
+        },
+        {
+            "type": "section",
+            "fields": [
+                {"type": "mrkdwn", "text": f"*Pipeline:*\n{pipeline}"},
+                {"type": "mrkdwn", "text": f"*Run ID:*\n{run_id}"},
+                {"type": "mrkdwn", "text": f"*Submitted by:*\n{user}"},
+            ],
+        },
+    ]
+    _post(blocks, f"Pipeline {pipeline} started (run {run_id})")
 
-    def _send(self, title: str, color: str, fields: dict) -> None:
-        if not self.webhook_url:
-            logger.info("Slack webhook is not configured; skipping %s alert", title)
-            return
 
-        blocks = [
-            {
-                "type": "header",
-                "text": {"type": "plain_text", "text": f"{color} {title}"},
-            },
-            {"type": "divider"},
-        ]
+def pipeline_succeeded(pipeline: str, run_id: str, duration_sec: float) -> None:
+    blocks = [
+        {
+            "type": "header",
+            "text": {"type": "plain_text", "text": "Pipeline Succeeded"},
+        },
+        {
+            "type": "section",
+            "fields": [
+                {"type": "mrkdwn", "text": f"*Pipeline:*\n{pipeline}"},
+                {"type": "mrkdwn", "text": f"*Run ID:*\n{run_id}"},
+                {"type": "mrkdwn", "text": f"*Duration:*\n{duration_sec:.1f}s"},
+            ],
+        },
+    ]
+    _post(blocks, f"Pipeline {pipeline} succeeded (run {run_id})")
 
-        for label, value in fields.items():
-            blocks.append(
+
+def pipeline_failed(
+    pipeline: str, run_id: str, duration_sec: float, failing_job: Optional[str]
+) -> None:
+    blocks = [
+        {
+            "type": "header",
+            "text": {"type": "plain_text", "text": "Pipeline Failed"},
+        },
+        {
+            "type": "section",
+            "fields": [
+                {"type": "mrkdwn", "text": f"*Pipeline:*\n{pipeline}"},
+                {"type": "mrkdwn", "text": f"*Run ID:*\n{run_id}"},
+                {"type": "mrkdwn", "text": f"*Duration:*\n{duration_sec:.1f}s"},
                 {
-                    "type": "section",
-                    "fields": [
-                        {"type": "mrkdwn", "text": f"*{label}*"},
-                        {"type": "mrkdwn", "text": str(value or "-")},
-                    ],
-                }
-            )
+                    "type": "mrkdwn",
+                    "text": f"*Failing job:*\n{failing_job or 'unknown'}",
+                },
+            ],
+        },
+    ]
+    _post(blocks, f"Pipeline {pipeline} failed (run {run_id})")
 
-        try:
-            response = requests.post(self.webhook_url, json={"blocks": blocks}, timeout=5)
-            response.raise_for_status()
-        except requests.RequestException:
-            logger.exception("Could not send Slack alert: %s", title)
+
+def integrity_failure(
+    name: str,
+    version: str,
+    expected_sha256: str,
+    actual_sha256: str,
+    run_id: str,
+) -> None:
+    mention = _mention_line()
+    blocks = [
+        {
+            "type": "header",
+            "text": {"type": "plain_text", "text": "Integrity Failure"},
+        },
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": f"{mention}\nArtifact checksum mismatch detected.",
+            },
+        },
+        {
+            "type": "section",
+            "fields": [
+                {"type": "mrkdwn", "text": f"*Artifact:*\n{name}@{version}"},
+                {"type": "mrkdwn", "text": f"*Run ID:*\n{run_id}"},
+                {"type": "mrkdwn", "text": f"*Expected SHA-256:*\n`{expected_sha256}`"},
+                {"type": "mrkdwn", "text": f"*Actual SHA-256:*\n`{actual_sha256}`"},
+            ],
+        },
+    ]
+    _post(blocks, f"Integrity failure: {name}@{version} (run {run_id})")
+
+
+def resolution_failure(pipeline: str, run_id: str, details: str) -> None:
+    mention = _mention_line()
+    blocks = [
+        {
+            "type": "header",
+            "text": {"type": "plain_text", "text": "Resolution Failure"},
+        },
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": f"{mention}\nDependency resolution failed for *{pipeline}*.",
+            },
+        },
+        {
+            "type": "section",
+            "text": {"type": "mrkdwn", "text": f"*Run ID:* `{run_id}`\n```{details[:2800]}```"},
+        },
+    ]
+    _post(blocks, f"Resolution failure: {pipeline} (run {run_id})")

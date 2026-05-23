@@ -1,8 +1,20 @@
-from cli.forge import build_parser
+"""Tests for cli/forge.py — verifies all required commands are registered."""
+
+from click.testing import CliRunner
+
+from cli.forge import cli
 
 
 def test_cli_has_required_commands():
-    parser = build_parser()
-    subparsers_action = next(action for action in parser._actions if action.dest == "command")
+    runner = CliRunner()
+    result = runner.invoke(cli, ["--help"])
+    assert result.exit_code == 0
+    for cmd in ("login", "run", "logs", "publish", "resolve", "ls", "admin"):
+        assert cmd in result.output, f"Missing command: {cmd}"
 
-    assert set(subparsers_action.choices) == {"login", "run", "logs", "publish", "resolve", "ls"}
+
+def test_admin_has_create_token():
+    runner = CliRunner()
+    result = runner.invoke(cli, ["admin", "--help"])
+    assert result.exit_code == 0
+    assert "create-token" in result.output
