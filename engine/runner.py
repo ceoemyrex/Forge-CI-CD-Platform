@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from typing import Callable, List, Optional, Tuple
 
 import docker
+from docker.types import Mount
 
 logger = logging.getLogger(__name__)
 
@@ -31,11 +32,13 @@ class DockerJobRunner:
         storage_root: str,
         max_job_duration_sec: int = 1800,
         network_name: str = "forge_jobs",
+        data_volume_name: str = "forge_data",
     ):
         self.registry_url = registry_url
-        self.storage_root = storage_root
+        self.storage_root = storage_root.rstrip("/")
         self.max_job_duration_sec = max_job_duration_sec
         self.network_name = network_name
+        self.data_volume_name = data_volume_name
         self.docker_client = docker.from_env()
         self._ensure_network_exists()
 
@@ -118,6 +121,7 @@ class DockerJobRunner:
                     step_name=step_name,
                     deadline=job_deadline,
                     log_callback=log_callback,
+                    workdir=workspace_path,
                 )
 
                 if oom_killed:
@@ -176,10 +180,19 @@ class DockerJobRunner:
         memory_bytes: int,
         forge_token: str,
     ):
-        volumes = {
-            workspace_path: {"bind": "/workspace", "mode": "rw"},
-            deps_path: {"bind": "/workspace/deps", "mode": "ro"},
-        }
+        # Engine data lives in a named Docker volume (forge_data).
+        # Job containers are spawned as siblings via the Docker socket, so
+        # host bind-mount paths like /data/runs/... don't exist on the host.
+        # Mount the whole named volume at /data so job containers see the same
+        # tree the engine writes to — workspace_path becomes working_dir.
+        mounts = [
+            Mount(
+                target="/data",
+                source=self.data_volume_name,
+                type="volume",
+                read_only=False,
+            ),
+        ]
 
         environment = {
             "FORGE_TOKEN": forge_token,
@@ -193,8 +206,8 @@ class DockerJobRunner:
             image=image,
             name=f"forge-job-{job_name}-{int(time.time())}",
             command=["sleep", "infinity"],
-            volumes=volumes,
-            working_dir="/workspace",
+            mounts=mounts,
+            working_dir=workspace_path,
             user="1000:1000",
             cap_drop=["ALL"],
             security_opt=["no-new-privileges:true"],
@@ -217,6 +230,7 @@ class DockerJobRunner:
         step_name: str,
         deadline: float,
         log_callback: Optional[Callable[[str], None]],
+        workdir: str = "/workspace",
     ) -> Tuple[int, bool]:
         """Execute one step inside the running container; returns (exit_code, oom_killed)."""
         exec_id = self.docker_client.api.exec_create(
@@ -225,7 +239,7 @@ class DockerJobRunner:
             stdout=True,
             stderr=True,
             user="1000:1000",
-            workdir="/workspace",
+            workdir=workdir,
         )
         output = self.docker_client.api.exec_start(exec_id, stream=True, demux=True)
 

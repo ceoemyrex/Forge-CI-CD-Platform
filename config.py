@@ -75,3 +75,6 @@ SLACK_NOTIFY_USERS = get("slack", "notify_users", ["@devops-team"])
 
 # Docker
 JOB_NETWORK = os.environ.get("JOB_NETWORK", get("docker", "job_network", "forge_jobs"))
+DATA_VOLUME_NAME = os.environ.get(
+    "DATA_VOLUME_NAME", get("docker", "data_volume", "forge_data")
+)
