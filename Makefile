@@ -14,4 +14,4 @@ logs:
 	docker compose logs -f
 
 token:
-	docker compose exec registry python -m registry.auth create-token
+	docker compose exec registry python -m registry.auth create-token --name admin
