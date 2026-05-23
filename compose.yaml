@@ -32,6 +32,7 @@ services:
       REGISTRY_URL: http://registry:8001
       TOKEN_DB_PATH: /data/db/tokens.db
       JOB_NETWORK: forge_jobs
+      DATA_VOLUME_NAME: forge_data
     depends_on:
       - registry
     networks:
@@ -49,3 +50,4 @@ networks:
 
 volumes:
   forge_data:
+    name: forge_data

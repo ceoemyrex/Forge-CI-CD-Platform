@@ -18,6 +18,7 @@ registry:
 
 docker:
   job_network: "forge_jobs"
+  data_volume: "forge_data"
 
 slack:
   webhook_url: "SLACK WEBHOOK URL"

@@ -37,6 +37,7 @@ job_runner = DockerJobRunner(
     storage_root=config.STORAGE_ROOT,
     max_job_duration_sec=config.MAX_JOB_DURATION_SEC,
     network_name=config.JOB_NETWORK,
+    data_volume_name=config.DATA_VOLUME_NAME,
 )
 
 run_storage: Dict[str, "RunState"] = {}
