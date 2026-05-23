@@ -9,7 +9,11 @@ from pathlib import Path
 
 from datetime import datetime
 
+<<<<<<< HEAD
+DB_PATH = os.environ.get("REGISTRY_DB_PATH", "./storage/db/registry.db")
+=======
 DB_PATH = os.environ.get("REGISTRY_DB_PATH", "/data/db/registry.db")
+>>>>>>> main
 
 def _get_conn():
 
@@ -126,4 +130,3 @@ def list_versions(name):
 def get_all_versions(name):
 
     return [v["version"] for v in list_versions(name)]
-

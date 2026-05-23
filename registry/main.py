@@ -1,11 +1,25 @@
+from fastapi import FastAPI, HTTPException
 
-import os
+<<<<<<< Updated upstream
+app = FastAPI(title="Forge Artifact Registry")
 
+=======
 import hashlib
+import json
+import re
+>>>>>>> Stashed changes
 
-from fastapi import FastAPI, Header, HTTPException, UploadFile, File, Form
+@app.get("/health")
+async def health():
+    return {"status": "ok"}
 
-from fastapi.responses import Response, JSONResponse
+<<<<<<< Updated upstream
+
+@app.get("/artifacts/{name}")
+async def list_versions(name: str):
+    raise HTTPException(status_code=501, detail="Registry storage is owned by the registry task and is not implemented yet")
+=======
+from fastapi.responses import Response
 
 from registry.auth import require_auth
 
@@ -45,11 +59,8 @@ async def publish_artifact(
 
     publisher = _auth(authorization)
 
-    # Validate semver
-
-    import re
-
-    if not re.match(r'^\d+\.\d+\.\d+', version):
+    # Validate semver.
+    if not re.fullmatch(r"\d+\.\d+\.\d+", version):
 
         raise HTTPException(status_code=400, detail=f"Invalid semver version: {version}")
 
@@ -78,8 +89,6 @@ async def publish_artifact(
         )
 
     sha256 = store_blob(data)
-
-    import json
 
     try:
 
@@ -144,4 +153,4 @@ def list_artifact_versions(name: str):
     versions = list_versions(name)
 
     return {"name": name, "versions": versions}
-
+>>>>>>> Stashed changes

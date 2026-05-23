@@ -1,18 +1,18 @@
-# config.yaml
+# Forge platform configuration.
+# Environment variables with matching names can override sensitive values.
+
 
 engine:
-  host: "0.0.0.0"
-  port: 8000
-  max_concurrent_jobs: 4
-  default_job_timeout: 1800  # 30 minutes in seconds
-  workspace_base: "/tmp/forge-workspaces"
-  log_dir: "/data/logs"
+  concurrency_limit: 4
+  max_job_duration_sec: 1800
+  default_cpu: 1.0
+  default_memory: 512Mi
+  docker_network: forge-isolated
 
 registry:
-  host: "0.0.0.0"
-  port: 8001
-  storage_dir: "/data/artifacts"
-  db_path: "/data/db/registry.db"
+  url: http://localhost:5000
+  db_url: sqlite:///forge.db
+  blob_root: ./storage/blobs
 
 slack:
   webhook_url: "SLACK WEBHOOK URL"
@@ -20,3 +20,23 @@ slack:
 
 auth:
   token_db_path: "/data/db/tokens.db"
+
+public_url: http://localhost:8000
+storage_root: ./storage
+
+engine:
+  concurrency_limit: 4
+  max_job_duration_sec: 1800
+  default_cpu: 1.0
+  default_memory: 512Mi
+  docker_network: forge-isolated
+
+registry:
+  url: http://localhost:5000
+  db_url: sqlite:///forge.db
+  blob_root: ./storage/blobs
+
+slack:
+  webhook_url: ""
+  notify_tags: "<!subteam^PLATFORM_TEAM>"
+ 

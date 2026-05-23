@@ -45,8 +45,8 @@ class DAGScheduler:
         
         # Build graph and detect issues before running
         self._build_graph()
-        self._detect_cycles()
         self._compute_dependents()
+        self._detect_cycles()
         self._topological_sort()
     
     def _build_graph(self):
