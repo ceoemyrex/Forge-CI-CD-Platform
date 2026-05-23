@@ -6,7 +6,11 @@ import sqlite3
 from datetime import datetime
 from pathlib import Path
 
+<<<<<<< HEAD
+DB_PATH = os.environ.get("REGISTRY_DB_PATH", "./storage/db/registry.db")
+=======
 DB_PATH = os.environ.get("REGISTRY_DB_PATH", "/data/db/registry.db")
+>>>>>>> main
 
 SEMVER_PATTERN = re.compile(
     r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)"

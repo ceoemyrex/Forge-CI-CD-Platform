@@ -1,15 +1,25 @@
-
-import sqlite3
-
+<<<<<<< Updated upstream
 import secrets
 
+
+def create_token() -> None:
+    token = secrets.token_urlsafe(32)
+    print(token)
+    print("Store only a hash of this token in the final registry implementation.")
+
+
+if __name__ == "__main__":
+    create_token()
+=======
+
+import argparse
 import hashlib
-
 import os
-
+import secrets
+import sqlite3
 from pathlib import Path
 
-DB_PATH = os.environ.get("TOKEN_DB_PATH", "/data/db/tokens.db")
+DB_PATH = os.environ.get("TOKEN_DB_PATH", "./storage/db/tokens.db")
 
 def _get_conn():
 
@@ -89,3 +99,25 @@ def require_auth(authorization: str = None) -> str:
 
     return name
 
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Forge registry auth tools")
+    subcommands = parser.add_subparsers(dest="command", required=True)
+
+    create = subcommands.add_parser("create-token", help="Create a new bearer token")
+    create.add_argument("--name", default="admin", help="Token owner name")
+
+    args = parser.parse_args()
+
+    if args.command == "create-token":
+        token = create_token(args.name)
+        print(token)
+        print("Save this token now. Forge stores only its SHA-256 hash.")
+        return 0
+
+    return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+>>>>>>> Stashed changes

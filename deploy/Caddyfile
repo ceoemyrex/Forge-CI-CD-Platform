@@ -1,0 +1,9 @@
+:80 {
+  handle /artifacts* {
+    reverse_proxy registry:5000
+  }
+
+  handle {
+    reverse_proxy engine:8000
+  }
+}

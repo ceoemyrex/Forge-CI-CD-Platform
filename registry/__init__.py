@@ -1,1 +1,1 @@
-
+"""Forge artifact registry package."""

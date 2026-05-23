@@ -52,4 +52,3 @@ def verify_checksum(data: bytes, declared: str) -> bool:
     declared_clean = declared.replace("sha256:", "").strip()
 
     return actual == declared_clean
-
