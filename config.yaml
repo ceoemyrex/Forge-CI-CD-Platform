@@ -1,12 +1,22 @@
 # config.yaml
 
-registry_url: http://localhost:5000
-storage_root: ./storage
-max_job_duration_sec: 1800  # 30 minutes
-concurrency_limit: 4
+engine:
+  host: "0.0.0.0"
+  port: 8000
+  max_concurrent_jobs: 4
+  default_job_timeout: 1800  # 30 minutes in seconds
+  workspace_base: "/tmp/forge-workspaces"
+  log_dir: "/data/logs"
 
-# Database
-db_url: sqlite:///forge.db
+registry:
+  host: "0.0.0.0"
+  port: 8001
+  storage_dir: "/data/artifacts"
+  db_path: "/data/db/registry.db"
 
-# Slack
-slack_webhook_url: ""  # Set via env var
+slack:
+  webhook_url: "SLACK WEBHOOK URL"
+  notify_users: ["@devops-team"]
+
+auth:
+  token_db_path: "/data/db/tokens.db"
