@@ -23,6 +23,12 @@ services:
     environment:
       CONFIG_PATH: /app/config.yaml
       DB_URL: postgresql://forge:forge@db:5432/forge
+<<<<<<< Updated upstream
+=======
+      REGISTRY_DB_PATH: /app/storage/db/registry.db
+      TOKEN_DB_PATH: /app/storage/db/tokens.db
+      ARTIFACT_STORAGE_DIR: /app/storage/artifacts
+>>>>>>> Stashed changes
     volumes:
       - ./config.yaml:/app/config.yaml:ro
       - forge-storage:/app/storage

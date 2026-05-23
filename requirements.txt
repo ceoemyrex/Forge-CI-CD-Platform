@@ -5,3 +5,7 @@ docker==6.1.0
 requests==2.31.0
 pytest==8.3.3
 python-multipart==0.0.6
+<<<<<<< Updated upstream
+=======
+httpx==0.24.1
+>>>>>>> Stashed changes

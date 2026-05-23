@@ -14,4 +14,8 @@ logs:
 	docker compose logs -f
 
 token:
+<<<<<<< Updated upstream
 	docker compose exec registry python -m registry.auth create-token
+=======
+	docker compose exec registry python -m registry.auth create-token --name admin
+>>>>>>> Stashed changes

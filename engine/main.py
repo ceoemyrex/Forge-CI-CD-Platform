@@ -130,6 +130,28 @@ async def get_lockfile(run_id: str):
     
     return {"lockfile": run_state.lockfile}
 
+
+@app.post("/resolve")
+async def resolve_pipeline(pipeline: UploadFile = File(...)):
+    """
+    POST /resolve — resolve a pipeline and return its lockfile without running jobs.
+    """
+    try:
+        pipeline_yaml = await pipeline.read()
+        pipeline_config = yaml.safe_load(pipeline_yaml)
+
+        parser = PipelineParser()
+        validated_config = parser.parse_and_validate(pipeline_config)
+
+        from engine.resolver import DependencyResolver
+
+        resolver = DependencyResolver(registry_url=config.REGISTRY_URL)
+        return resolver.resolve(validated_config)
+    except yaml.YAMLError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid YAML: {e}")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
 @app.get("/runs/{run_id}/logs")
 async def stream_logs(run_id: str, follow: bool = False):
     """
@@ -223,6 +245,14 @@ def execute_pipeline(run_id: str):
                 futures = {}
                 
                 for job_name in jobs_in_level:
+                    if scheduler.get_job_status(job_name) == JobStatus.SKIPPED:
+                        run_state.jobs[job_name] = {
+                            "status": "skipped",
+                            "exit_code": None,
+                            "artifacts": [],
+                        }
+                        continue
+
                     job_config = jobs_config[job_name]
                     
                     future = executor.submit(
