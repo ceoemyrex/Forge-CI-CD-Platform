@@ -21,7 +21,10 @@ docker:
 
 slack:
   webhook_url: "SLACK WEBHOOK URL"
-  notify_users: ["@devops-team"]
+  notify_users:
+    - "<@U0B5TFSQS4S>"
+    - "<@U0B5VBJ9BH7>"
+    - "<@U0B5X5RJVJQ>"
 
 auth:
   token_db_path: "/data/db/tokens.db"
