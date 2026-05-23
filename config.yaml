@@ -1,13 +1,7 @@
 # Forge platform configuration.
 # Environment variables with matching names can override sensitive values.
-<<<<<<< Updated upstream
 
-public_url: http://localhost:8000
-storage_root: ./storage
-=======
->>>>>>> Stashed changes
 
-<<<<<<< Updated upstream
 engine:
   concurrency_limit: 4
   max_job_duration_sec: 1800
@@ -21,16 +15,12 @@ registry:
   blob_root: ./storage/blobs
 
 slack:
-<<<<<<< Updated upstream
-  webhook_url: ""
-  notify_tags: "<!subteam^PLATFORM_TEAM>"
-=======
   webhook_url: "SLACK WEBHOOK URL"
   notify_users: ["@devops-team"]
 
 auth:
   token_db_path: "/data/db/tokens.db"
-=======
+
 public_url: http://localhost:8000
 storage_root: ./storage
 
@@ -49,5 +39,4 @@ registry:
 slack:
   webhook_url: ""
   notify_tags: "<!subteam^PLATFORM_TEAM>"
->>>>>>> Stashed changes
->>>>>>> Stashed changes
+ 
