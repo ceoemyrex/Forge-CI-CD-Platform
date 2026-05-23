@@ -1,18 +1,23 @@
-# config.yaml
+# Forge platform configuration
 
 engine:
   host: "0.0.0.0"
   port: 8000
   max_concurrent_jobs: 4
-  default_job_timeout: 1800  # 30 minutes in seconds
-  workspace_base: "/tmp/forge-workspaces"
+  default_job_timeout: 1800
+  workspace_base: "/data"
   log_dir: "/data/logs"
 
 registry:
   host: "0.0.0.0"
   port: 8001
+  url: "http://registry:8001"
+  public_url: "http://localhost:8001"
   storage_dir: "/data/artifacts"
   db_path: "/data/db/registry.db"
+
+docker:
+  job_network: "forge_jobs"
 
 slack:
   webhook_url: "SLACK WEBHOOK URL"

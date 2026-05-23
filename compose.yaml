@@ -1,0 +1,51 @@
+services:
+  registry:
+    build: .
+    command: python -m uvicorn registry.main:app --host 0.0.0.0 --port 8001
+    ports:
+      - "8001:8001"
+    volumes:
+      - forge_data:/data
+    environment:
+      FORGE_CONFIG: /app/config.yaml
+      REGISTRY_DB_PATH: /data/db/registry.db
+      ARTIFACT_STORAGE_DIR: /data/artifacts
+      TOKEN_DB_PATH: /data/db/tokens.db
+      REGISTRY_URL: http://registry:8001
+    networks:
+      - forge_jobs
+      - forge_public
+    restart: unless-stopped
+
+  engine:
+    build: .
+    command: python -m uvicorn engine.main:app --host 0.0.0.0 --port 8000
+    ports:
+      - "8000:8000"
+    volumes:
+      - forge_data:/data
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      FORGE_CONFIG: /app/config.yaml
+      STORAGE_ROOT: /data
+      LOG_DIR: /data/logs
+      REGISTRY_URL: http://registry:8001
+      TOKEN_DB_PATH: /data/db/tokens.db
+      JOB_NETWORK: forge_jobs
+    depends_on:
+      - registry
+    networks:
+      - forge_jobs
+      - forge_public
+    restart: unless-stopped
+
+networks:
+  forge_jobs:
+    name: forge_jobs
+    driver: bridge
+    internal: true
+  forge_public:
+    driver: bridge
+
+volumes:
+  forge_data:

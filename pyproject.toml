@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "forge-cli"
+version = "0.1.0"
+description = "Forge CI/CD platform CLI"
+requires-python = ">=3.10"
+dependencies = [
+    "click>=8.1",
+    "requests>=2.31",
+    "pyyaml>=6.0",
+]
+
+[project.scripts]
+forge = "cli.forge:cli"
+
+[tool.setuptools.packages.find]
+include = ["cli*", "engine*", "registry*"]

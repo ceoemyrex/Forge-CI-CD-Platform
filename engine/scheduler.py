@@ -45,8 +45,8 @@ class DAGScheduler:
         
         # Build graph and detect issues before running
         self._build_graph()
-        self._detect_cycles()
         self._compute_dependents()
+        self._detect_cycles()
         self._topological_sort()
     
     def _build_graph(self):
@@ -70,43 +70,34 @@ class DAGScheduler:
             self.job_statuses[job_name] = JobStatus.QUEUED
     
     def _detect_cycles(self):
-        """
-        Check for cycles in the DAG using DFS.
-        If a cycle exists, raise an error with the cycle path.
-        """
-        VISITING = "visiting"
-        VISITED = "visited"
-        states = {job: "unvisited" for job in self.graph}
-        cycles_found = []
-        
-        def dfs(node: str, path: List[str]):
-            """Depth-first search to detect cycles"""
-            if states[node] == VISITED:
-                return
-            
-            if states[node] == VISITING:
-                # Found a cycle! Path is from this node back to itself
+        """Detect cycles by DFS over needs edges."""
+        visiting: Set[str] = set()
+        visited: Set[str] = set()
+        cycles_found: List[str] = []
+
+        def dfs(node: str, path: List[str]) -> None:
+            if node in visiting:
                 cycle_start = path.index(node)
                 cycle = path[cycle_start:] + [node]
                 cycles_found.append(" → ".join(cycle))
                 return
-            
-            states[node] = VISITING
+            if node in visited:
+                return
+
+            visiting.add(node)
             path.append(node)
-            
-            for dependent in self.graph[node].dependents:
-                dfs(dependent, path[:])  # Use copy of path
-            
-            states[node] = VISITED
-        
-        # Start DFS from each unvisited node
+            for dep in self.graph[node].needs:
+                dfs(dep, path)
+            path.pop()
+            visiting.discard(node)
+            visited.add(node)
+
         for job in self.graph:
-            if states[job] == "unvisited":
+            if job not in visited:
                 dfs(job, [])
-        
+
         if cycles_found:
-            cycle_str = ", ".join(cycles_found)
-            raise ValueError(f"Dependency cycles detected: {cycle_str}")
+            raise ValueError(f"Dependency cycles detected: {', '.join(cycles_found)}")
     
     def _compute_dependents(self):
         """
