@@ -1,14 +1,12 @@
 # engine/main.py
 
 from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import StreamingResponse
 import yaml
 import logging
 import os
-import json
 import uuid
-from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -16,6 +14,7 @@ from engine.scheduler import DAGScheduler, JobStatus
 from engine.runner import DockerJobRunner
 from engine.parser import PipelineParser  # From Trojan (Person A gets from them)
 from engine.logs import LogStreamer  # You'll implement this
+from engine.slack import SlackAlertClient
 import config  # Your config.yaml loader
 
 logger = logging.getLogger(__name__)
@@ -24,12 +23,21 @@ app = FastAPI(title="Forge CI/CD Platform")
 
 # Global state
 run_storage: Dict[str, dict] = {}  # {run_id: {status, jobs, lockfile, logs}}
-job_runner = DockerJobRunner(
-    registry_url=config.REGISTRY_URL,
-    storage_root=config.STORAGE_ROOT,
-    max_job_duration_sec=config.MAX_JOB_DURATION_SEC
-)
+job_runner = None
 log_streamer = LogStreamer(storage_root=config.STORAGE_ROOT)
+slack_alerts = SlackAlertClient(config.SLACK_WEBHOOK_URL, config.SLACK_NOTIFY_TAGS)
+
+
+def get_job_runner() -> DockerJobRunner:
+    """Create the Docker runner only when a job actually starts."""
+    global job_runner
+    if job_runner is None:
+        job_runner = DockerJobRunner(
+            registry_url=config.REGISTRY_URL,
+            storage_root=config.STORAGE_ROOT,
+            max_job_duration_sec=config.MAX_JOB_DURATION_SEC,
+        )
+    return job_runner
 
 class RunState:
     """Tracks state of a pipeline run"""
@@ -132,43 +140,19 @@ async def stream_logs(run_id: str, follow: bool = False):
     if run_id not in run_storage:
         raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
     
-    log_path = f"{config.STORAGE_ROOT}/logs/{run_id}.log"
-    
-    def event_generator():
-        """Stream logs to client"""
-        # Get existing logs
-        try:
-            with open(log_path, "r") as f:
-                for line in f:
-                    yield f"data: {json.dumps({'line': line.strip()})}\n\n"
-        except FileNotFoundError:
-            pass
-        
-        # If follow=true, keep connection open and stream new lines
-        if follow:
-            import time
-            last_pos = 0
-            try:
-                with open(log_path, "r") as f:
-                    last_pos = f.seek(0, 2)  # Seek to end
-            except:
-                pass
-            
-            while run_storage[run_id].status in ["queued", "running"]:
-                try:
-                    with open(log_path, "r") as f:
-                        f.seek(last_pos)
-                        new_lines = f.readlines()
-                        last_pos = f.tell()
-                        
-                        for line in new_lines:
-                            yield f"data: {json.dumps({'line': line.strip()})}\n\n"
-                except:
-                    pass
-                
-                time.sleep(0.5)  # Poll every 500ms
-    
-    return StreamingResponse(event_generator(), media_type="text/event-stream")
+    def is_complete():
+        return run_storage[run_id].status not in ["queued", "running"]
+
+    if follow:
+        return StreamingResponse(
+            log_streamer.sse_events(run_id, follow=True, is_complete=is_complete),
+            media_type="text/event-stream",
+        )
+
+    return StreamingResponse(
+        log_streamer.text_events(run_id, follow=False, is_complete=is_complete),
+        media_type="text/plain",
+    )
 
 def execute_pipeline(run_id: str):
     """
@@ -196,6 +180,11 @@ def execute_pipeline(run_id: str):
         except Exception as e:
             run_state.status = "conflict_failure"
             run_state.error = str(e)
+            slack_alerts.resolution_failure(
+                pipeline=pipeline_config.get("name", "unknown"),
+                run_id=run_id,
+                details=str(e),
+            )
             logger.error(f"[{run_id}] Resolution failed: {e}")
             return
         
@@ -206,6 +195,11 @@ def execute_pipeline(run_id: str):
         except ValueError as e:
             run_state.status = "cycle_failure"
             run_state.error = str(e)
+            slack_alerts.resolution_failure(
+                pipeline=pipeline_config.get("name", "unknown"),
+                run_id=run_id,
+                details=str(e),
+            )
             logger.error(f"[{run_id}] Cycle detected: {e}")
             return
         
@@ -214,6 +208,11 @@ def execute_pipeline(run_id: str):
         
         run_state.status = "running"
         run_state.started_at = datetime.utcnow().isoformat()
+        slack_alerts.pipeline_started(
+            pipeline=pipeline_config.get("name", "unknown"),
+            run_id=run_id,
+            user="api",
+        )
         
         # Execute jobs level-by-level (respecting concurrency)
         for level, jobs_in_level in enumerate(execution_plan):
@@ -264,6 +263,21 @@ def execute_pipeline(run_id: str):
             run_state.status = "succeeded"
         
         run_state.completed_at = datetime.utcnow().isoformat()
+        duration = _duration_seconds(run_state.started_at, run_state.completed_at)
+        failing_job = _first_failing_job(run_state.jobs)
+        if run_state.status == "succeeded":
+            slack_alerts.pipeline_succeeded(
+                pipeline=pipeline_config.get("name", "unknown"),
+                run_id=run_id,
+                duration_seconds=duration,
+            )
+        else:
+            slack_alerts.pipeline_failed(
+                pipeline=pipeline_config.get("name", "unknown"),
+                run_id=run_id,
+                duration_seconds=duration,
+                failing_job=failing_job,
+            )
         logger.info(f"[{run_id}] Pipeline completed with status: {run_state.status}")
     
     except Exception as e:
@@ -300,13 +314,13 @@ def execute_job(
         forge_token = "placeholder-token"
         
         # Run job
-        result = job_runner.run_job(
+        result = get_job_runner().run_job(
             job_name=job_name,
             job_config=job_config,
             workspace_path=workspace_path,
             deps_path=deps_path,
             forge_token=forge_token,
-            log_stream_callback=lambda line: log_streamer.write(run_id, line)
+            log_stream_callback=lambda line: log_streamer.write(run_id, line, job=job_name)
         )
         
         # Auto-publish artifacts
@@ -348,6 +362,21 @@ def pull_deps(lockfile: dict, deps_path: str, run_id: str, job_name: str):
         # Extract to {deps_path}/{dep_name}/
         
         pass
+
+
+def _duration_seconds(started_at: str, completed_at: str) -> float:
+    if not started_at or not completed_at:
+        return 0.0
+    start = datetime.fromisoformat(started_at)
+    end = datetime.fromisoformat(completed_at)
+    return round((end - start).total_seconds(), 2)
+
+
+def _first_failing_job(jobs: dict) -> str:
+    for job_name, job in jobs.items():
+        if job.get("status") not in ["succeeded", "skipped"]:
+            return job_name
+    return "unknown"
 
 if __name__ == "__main__":
     import uvicorn

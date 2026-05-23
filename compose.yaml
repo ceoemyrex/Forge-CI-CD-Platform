@@ -1,0 +1,57 @@
+services:
+  engine:
+    build: .
+    command: uvicorn engine.main:app --host 0.0.0.0 --port 8000
+    environment:
+      CONFIG_PATH: /app/config.yaml
+      REGISTRY_URL: http://registry:5000
+      DB_URL: postgresql://forge:forge@db:5432/forge
+      SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}
+    volumes:
+      - ./config.yaml:/app/config.yaml:ro
+      - forge-storage:/app/storage
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      - registry
+      - db
+    ports:
+      - "8000:8000"
+
+  registry:
+    build: .
+    command: uvicorn registry.main:app --host 0.0.0.0 --port 5000
+    environment:
+      CONFIG_PATH: /app/config.yaml
+      DB_URL: postgresql://forge:forge@db:5432/forge
+    volumes:
+      - ./config.yaml:/app/config.yaml:ro
+      - forge-storage:/app/storage
+    depends_on:
+      - db
+    ports:
+      - "5000:5000"
+
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: forge
+      POSTGRES_USER: forge
+      POSTGRES_PASSWORD: forge
+    volumes:
+      - forge-db:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+  proxy:
+    image: caddy:2-alpine
+    ports:
+      - "80:80"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+    depends_on:
+      - engine
+      - registry
+
+volumes:
+  forge-storage:
+  forge-db:

@@ -1,12 +1,21 @@
-# config.yaml
+# Forge platform configuration.
+# Environment variables with matching names can override sensitive values.
 
-registry_url: http://localhost:5000
+public_url: http://localhost:8000
 storage_root: ./storage
-max_job_duration_sec: 1800  # 30 minutes
-concurrency_limit: 4
 
-# Database
-db_url: sqlite:///forge.db
+engine:
+  concurrency_limit: 4
+  max_job_duration_sec: 1800
+  default_cpu: 1.0
+  default_memory: 512Mi
+  docker_network: forge-isolated
 
-# Slack
-slack_webhook_url: ""  # Set via env var
+registry:
+  url: http://localhost:5000
+  db_url: sqlite:///forge.db
+  blob_root: ./storage/blobs
+
+slack:
+  webhook_url: ""
+  notify_tags: "<!subteam^PLATFORM_TEAM>"
