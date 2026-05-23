@@ -288,6 +288,13 @@ def execute_pipeline(run_id: str) -> None:
         log_streamer.unregister_status_checker(run_id)
 
 
+def _prepare_job_dir(path: str) -> None:
+    """Job containers run as uid 1000; engine creates dirs as root."""
+    os.makedirs(path, exist_ok=True)
+    os.chown(path, 1000, 1000)
+    os.chmod(path, 0o755)
+
+
 def execute_job(
     run_id: str,
     job_name: str,
@@ -298,8 +305,8 @@ def execute_job(
 ) -> tuple:
     workspace_path = os.path.join(config.STORAGE_ROOT, "runs", run_id, "workspace")
     deps_path = os.path.join(workspace_path, "deps")
-    os.makedirs(workspace_path, exist_ok=True)
-    os.makedirs(deps_path, exist_ok=True)
+    _prepare_job_dir(workspace_path)
+    _prepare_job_dir(deps_path)
 
     log_streamer.write(run_id, job_name, f"Starting job {job_name}")
 
