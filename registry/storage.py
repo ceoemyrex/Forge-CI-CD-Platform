@@ -7,7 +7,7 @@ import shutil
 
 from pathlib import Path
 
-STORAGE_DIR = os.environ.get("ARTIFACT_STORAGE_DIR", "./storage/artifacts")
+STORAGE_DIR = os.environ.get("ARTIFACT_STORAGE_DIR", "/data/artifacts")
 
 def _blob_path(sha256: str) -> Path:
 
@@ -52,3 +52,7 @@ def verify_checksum(data: bytes, declared: str) -> bool:
     declared_clean = declared.replace("sha256:", "").strip()
 
     return actual == declared_clean
+<<<<<<< HEAD
+=======
+
+>>>>>>> main
