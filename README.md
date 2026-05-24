@@ -2,10 +2,8 @@
 
 ## Public URL
 
-Replace with your VPS address after deployment:
-
-- **Engine API:** `http://YOUR_VPS_IP:8000`
-- **Registry API:** `http://YOUR_VPS_IP:8001`
+- **Engine API:** `https://forgec.duckdns.org/`
+- **Registry API:** `https://forgec.duckdns.org/artifacts*`
 
 ## Pipeline YAML Schema
 
@@ -39,6 +37,8 @@ artifacts:                    # auto-published after all jobs succeed
 See `examples/` for the three required capability pipelines.
 
 ## Architecture
+
+![Forge platform architecture](docs/Architecture.png)
 
 ### DAG Scheduler
 
@@ -98,7 +98,7 @@ docker compose exec registry python scripts/create_token.py admin
 # Either prints: FORGE_TOKEN=<hex-token>
 
 # 5. Login and run
-forge login http://YOUR_VPS_IP:8000 --token <token>
+forge login https://forgec.duckdns.org/ --token <token>
 forge run examples/build-lib-core.yaml --follow
 forge ls lib-core
 ```
@@ -133,6 +133,8 @@ forge ls lib-core
 
 Configure `slack.webhook_url` in `config.yaml`. Alerts (Block Kit) fire for: pipeline started/succeeded/failed, integrity failures (with `@mentions`), and resolution failures.
 
+![Slack pipeline alerts](docs/SlackAlert.png)
+
 ## Repository Structure
 
 ```
@@ -142,6 +144,7 @@ Configure `slack.webhook_url` in `config.yaml`. Alerts (Block Kit) fire for: pip
 ├── compose.yaml
 ├── config.yaml
 ├── config.py
+├── docs/           Architecture.png, SlackAlert.png
 ├── examples/       Sample pipeline YAMLs
 └── scripts/        create_token.py
 ```
