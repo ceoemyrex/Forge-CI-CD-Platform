@@ -26,6 +26,7 @@ slack:
     - "<@U0B5TFSQS4S>"
     - "<@U0B5VBJ9BH7>"
     - "<@U0B5X5RJVJQ>"
+    - "<@U0B5R638AJ1>"
 
 auth:
   token_db_path: "/data/db/tokens.db"

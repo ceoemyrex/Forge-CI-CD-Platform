@@ -16,8 +16,9 @@ from typing import Dict, Optional
 
 import requests
 import yaml
-from fastapi import BackgroundTasks, FastAPI, File, Header, HTTPException, UploadFile
+from fastapi import BackgroundTasks, Depends, FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 import config
 from engine.logs import LogStreamer
@@ -30,6 +31,8 @@ from registry.auth import require_auth
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Forge CI/CD Platform")
+
+security = HTTPBearer()
 
 log_streamer = LogStreamer(storage_root=config.STORAGE_ROOT)
 job_runner = DockerJobRunner(
@@ -81,9 +84,9 @@ class RunState:
         }
 
 
-def _auth(authorization: str = Header(None)) -> str:
+def _auth(credentials: HTTPAuthorizationCredentials = Depends(security)) -> str:
     try:
-        return require_auth(authorization)
+        return require_auth(f"Bearer {credentials.credentials}")
     except ValueError as exc:
         raise HTTPException(status_code=401, detail=str(exc)) from exc
 
@@ -92,9 +95,9 @@ def _auth(authorization: str = Header(None)) -> str:
 async def submit_pipeline(
     background_tasks: BackgroundTasks,
     pipeline: UploadFile = File(...),
-    authorization: str = Header(None),
+    submitter: str = Depends(_auth),
+    credentials: HTTPAuthorizationCredentials = Depends(security),
 ):
-    submitter = _auth(authorization)
     try:
         pipeline_yaml = await pipeline.read()
         parser = PipelineParser()
@@ -102,7 +105,7 @@ async def submit_pipeline(
 
         run_id = str(uuid.uuid4())[:8]
         run_state = RunState(run_id, validated_config, submitter)
-        run_state.forge_token = authorization.split(" ", 1)[1] if authorization else None
+        run_state.forge_token = credentials.credentials
         run_storage[run_id] = run_state
 
         log_streamer.register_status_checker(run_id, lambda: run_storage[run_id].status)

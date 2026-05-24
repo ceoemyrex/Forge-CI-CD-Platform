@@ -6,8 +6,9 @@ import hashlib
 import json
 import os
 
-from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import JSONResponse, Response
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from registry.auth import require_auth
 from registry.metadata import get_artifact, insert_artifact, is_valid_semver, list_versions
@@ -15,10 +16,12 @@ from registry.storage import get_blob, store_blob, verify_checksum
 
 app = FastAPI(title="Forge Registry")
 
+security = HTTPBearer()
 
-def _auth(authorization: str = Header(None)) -> str:
+
+def _auth(credentials: HTTPAuthorizationCredentials = Depends(security)) -> str:
     try:
-        return require_auth(authorization)
+        return require_auth(f"Bearer {credentials.credentials}")
     except ValueError as exc:
         raise HTTPException(status_code=401, detail=str(exc)) from exc
 
@@ -30,9 +33,8 @@ async def publish_artifact(
     file: UploadFile = File(...),
     checksum: str = Form(...),
     deps: str = Form("[]"),
-    authorization: str = Header(None),
+    publisher: str = Depends(_auth),
 ):
-    publisher = _auth(authorization)
 
     if not is_valid_semver(version):
         raise HTTPException(status_code=400, detail=f"Invalid semver version: {version}")
