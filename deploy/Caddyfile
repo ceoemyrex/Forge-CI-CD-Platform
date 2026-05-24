@@ -1,9 +1,9 @@
-:80 {
+forgec.duckdns.org {
   handle /artifacts* {
-    reverse_proxy registry:5000
+    reverse_proxy localhost:8001
   }
 
   handle {
-    reverse_proxy engine:8000
+    reverse_proxy localhost:8000
   }
 }
